@@ -1,0 +1,53 @@
+generator client {
+  provider   = "prisma-client-js"
+  engineType = "library"
+}
+
+datasource db {
+  provider = "mongodb"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                    String           @id @default(auto()) @map("_id") @db.ObjectId
+  name                  String?
+  phone                 String           @unique
+  wallet_address        String           @unique
+  encrypted_private_key String
+  is_merchant           Boolean          @default(false)
+  created_at            DateTime         @default(now())
+  
+  // Relations
+  sent_transactions     Transaction[]    @relation("Sender")
+  received_transactions Transaction[]    @relation("Receiver")
+  merchant_requests     PaymentRequest[] @relation("MerchantRequests")
+}
+
+model Transaction {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  amount      Float
+  tx_hash     String   @unique
+  status      String   @default("SUCCESS") // SUCCESS, PENDING, FAILED
+  token       String   @default("SOL")
+  created_at  DateTime @default(now())
+
+  // Relations
+  sender_id   String   @db.ObjectId
+  sender      User     @relation("Sender", fields: [sender_id], references: [id])
+  
+  receiver_id String?  @db.ObjectId
+  receiver    User?    @relation("Receiver", fields: [receiver_id], references: [id])
+}
+
+model PaymentRequest {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  merchant_id String   @db.ObjectId
+  merchant    User     @relation("MerchantRequests", fields: [merchant_id], references: [id])
+  amount      Float
+  token       String   @default("SOL")
+  status      String   @default("PENDING") // PENDING, PAID, EXPIRED
+  label       String?
+  message     String?
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+}
