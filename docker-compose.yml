@@ -8,13 +8,12 @@ services:
     env_file:
       - .env
     volumes:
-      - ./src:/app/src
-      - ./prisma:/app/prisma
-      - /app/node_modules # Don't overwrite node_modules with local ones
+      - .:/app # Mount the entire project root
+      - /app/node_modules # Preserve container node_modules
     environment:
       - NODE_ENV=development
     restart: always
 
 # To run in production mode instead:
-#   docker compose build --target runner
-#   docker compose up
+#   docker build -t solpay-backend-prod --target runner .
+#   docker run -p 3001:3001 --env-file .env solpay-backend-prod
