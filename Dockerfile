@@ -1,4 +1,4 @@
-# Single-stage "Nuclear" Dockerfile for guaranteed source inclusion
+# Specific dev-mode Dockerfile as requested
 FROM node:24-alpine
 
 WORKDIR /app
@@ -6,25 +6,18 @@ WORKDIR /app
 # Add node_modules/.bin to PATH
 ENV PATH="/app/node_modules/.bin:${PATH}"
 
-# Copy all project files early (including src, tsconfig.json, etc.)
+# Copy all project files early
 COPY . .
 
-# Install ALL dependencies (including tsx)
+# Install ALL dependencies
 RUN npm install
-
-# Explicitly verify the presence of src during build
-RUN ls -la /app/src
 
 # Generate Prisma Client
 RUN npx prisma generate
 
-# Build the TypeScript project
-RUN npm run build
-
-ENV NODE_ENV=production
+ENV NODE_ENV=development
 ENV PORT=3001
-
 EXPOSE 3001
 
-# Start the production server
-CMD ["npm", "start"]
+# Reverted to dev mode as requested
+CMD ["npm", "run", "dev"]
