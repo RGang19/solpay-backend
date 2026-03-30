@@ -3,17 +3,17 @@ services:
     build:
       context: .
       target: development
+    working_dir: /app
     ports:
       - "${PORT:-3001}:3001"
     env_file:
       - .env
     volumes:
-      - .:/app # Mount the entire project root
-      - /app/node_modules # Preserve container node_modules
+      - .:/app
+      - /app/node_modules # Anonymous volume to preserve container node_modules
     environment:
       - NODE_ENV=development
     restart: always
 
-# To run in production mode instead:
-#   docker build -t solpay-backend-prod --target runner .
-#   docker run -p 3001:3001 --env-file .env solpay-backend-prod
+# Command to rebuild and start:
+#   docker compose up --build
