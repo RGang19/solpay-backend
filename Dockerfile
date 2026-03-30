@@ -3,6 +3,9 @@ FROM node:24-alpine AS base
 
 WORKDIR /app
 
+# Add node_modules/.bin to PATH
+ENV PATH="/app/node_modules/.bin:${PATH}"
+
 # Copy package files and install dependencies
 COPY package*.json ./
 COPY prisma ./prisma/
