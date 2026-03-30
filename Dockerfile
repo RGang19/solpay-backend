@@ -18,10 +18,13 @@ RUN ls -la /app/src
 # Generate Prisma Client
 RUN npx prisma generate
 
-ENV NODE_ENV=development
+# Build the TypeScript project
+RUN npm run build
+
+ENV NODE_ENV=production
 ENV PORT=3001
 
 EXPOSE 3001
 
-# Command to allow debugging and start server
-CMD ["npm", "run", "dev"]
+# Start the production server
+CMD ["npm", "start"]
