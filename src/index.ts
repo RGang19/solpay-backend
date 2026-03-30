@@ -16,8 +16,14 @@ const app = express();
 const PORT = process.env.PORT || 3001;
 
 // Middleware
-app.use(cors());
-app.use(helmet());
+app.use(cors({
+  origin: ['https://sol-pay.netlify.app', 'http://localhost:5173'],
+  credentials: true
+}));
+app.use(helmet({
+  crossOriginResourcePolicy: { policy: "cross-origin" },
+  crossOriginOpenerPolicy: { policy: "unsafe-none" }
+}));
 app.use(morgan('dev'));
 app.use(express.json());
 
