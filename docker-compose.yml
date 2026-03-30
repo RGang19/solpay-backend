@@ -1,21 +1,20 @@
 services:
   backend:
-    build: .
+    build:
+      context: .
+      target: development
     ports:
       - "${PORT:-3001}:3001"
     env_file:
       - .env
+    volumes:
+      - ./src:/app/src
+      - ./prisma:/app/prisma
+      - /app/node_modules # Don't overwrite node_modules with local ones
     environment:
-      - NODE_ENV=production
+      - NODE_ENV=development
     restart: always
 
-# Optional: Add a MongoDB service if you want to run it locally
-# mongodb:
-#   image: mongo:latest
-#   ports:
-#     - "27017:27017"
-#   volumes:
-#     - mongodb_data:/data/db
-
-# volumes:
-#   mongodb_data:
+# To run in production mode instead:
+#   docker compose build --target runner
+#   docker compose up
