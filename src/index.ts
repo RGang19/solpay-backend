@@ -3,14 +3,14 @@ import type { Request, Response } from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import morgan from 'morgan';
-import dontenv from 'dotenv';
+import dotenv from 'dotenv';
 import authRoutes from './routes/auth.js';
 import paymentRoutes from './routes/payments.js';
 import transactionRoutes from './routes/transactions.js';
 import userRoutes from './routes/users.js';
 import paymentRequestsRoutes from './routes/paymentRequests.js';
 
-dontenv.config();
+dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -32,6 +32,10 @@ app.get('/health', (req: Request, res: Response) => {
   res.status(200).json({ status: 'ok' });
 });
 
+app.get('/', (req: Request, res: Response) => {
+  res.status(200).send('SolPay Backend is live');
+});
+
 app.listen(Number(PORT), '0.0.0.0', () => {
-  console.log(`Server running on port ${PORT}`);
+  console.log(`Server running on port ${PORT} (0.0.0.0)`);
 });
