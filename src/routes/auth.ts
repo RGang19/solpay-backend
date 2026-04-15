@@ -14,19 +14,52 @@ const router = Router();
 // In-memory store for mocked OTPs (phone -> otp)
 const otpStore = new Map<string, string>();
 
-const userResponse = (user: {
+const userResponse = (
+  user: {
   id: string;
   name: string | null;
   phone: string;
   wallet_address: string;
+  encrypted_private_key?: string;
   is_merchant?: boolean;
-}) => ({
-  id: user.id,
-  name: user.name,
-  phone: user.phone,
-  wallet_address: user.wallet_address,
-  is_merchant: user.is_merchant || false,
-});
+  },
+  linkedWallets: Array<{ wallet_address: string; label: string | null; source: string }> = [],
+) => {
+  const primaryLabel = user.encrypted_private_key
+    ? 'Mobile-created custodial wallet'
+    : 'Signed Solana wallet';
+
+  return {
+    id: user.id,
+    name: user.name,
+    phone: user.phone,
+    wallet_address: user.wallet_address,
+    is_merchant: user.is_merchant || false,
+    wallets: [
+      {
+        address: user.wallet_address,
+        type: user.encrypted_private_key ? 'mobile_created' : 'primary',
+        label: primaryLabel,
+        isPrimary: true,
+      },
+      ...linkedWallets.map((wallet) => ({
+        address: wallet.wallet_address,
+        type: 'attached',
+        label: wallet.label || 'Attached Solana wallet',
+        source: wallet.source,
+        isPrimary: false,
+      })),
+    ],
+  };
+};
+
+const userWithWallets = async (userId: string) => {
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    include: { linked_wallets: true },
+  });
+  return user;
+};
 
 const decodeSignature = (signature: unknown) => {
   if (Array.isArray(signature)) {
@@ -107,7 +140,17 @@ router.post('/wallet/verify', async (req: Request, res: Response) => {
       return res.status(401).json({ error: 'Invalid wallet signature' });
     }
 
-    let user = await prisma.user.findUnique({ where: { wallet_address: wallet } });
+    let user = await prisma.user.findUnique({
+      where: { wallet_address: wallet },
+      include: { linked_wallets: true },
+    });
+    if (!user) {
+      const linkedWallet = await prisma.linkedWallet.findUnique({
+        where: { wallet_address: wallet },
+        include: { user: { include: { linked_wallets: true } } },
+      });
+      user = linkedWallet?.user || null;
+    }
     if (!user) {
       user = await prisma.user.create({
         data: {
@@ -116,6 +159,7 @@ router.post('/wallet/verify', async (req: Request, res: Response) => {
           encrypted_private_key: '',
           name: null,
         },
+        include: { linked_wallets: true },
       });
     }
 
@@ -130,7 +174,7 @@ router.post('/wallet/verify', async (req: Request, res: Response) => {
       message: 'Wallet login successful',
       token,
       expiresAt,
-      user: userResponse(user),
+      user: userResponse(user, user.linked_wallets),
     });
   } catch (error) {
     console.error('Wallet login error:', error);
@@ -142,10 +186,10 @@ router.get('/session/me', authenticateToken, async (req: AuthRequest, res: Respo
   const userId = req.user?.userId;
   if (!userId) return res.status(401).json({ error: 'Unauthorized' });
 
-  const user = await prisma.user.findUnique({ where: { id: userId } });
+  const user = await userWithWallets(userId);
   if (!user) return res.status(404).json({ error: 'User not found' });
 
-  res.status(200).json({ user: userResponse(user) });
+  res.status(200).json({ user: userResponse(user, user.linked_wallets) });
 });
 
 router.post('/phone/attach', authenticateToken, async (req: AuthRequest, res: Response) => {
@@ -161,24 +205,62 @@ router.post('/phone/attach', authenticateToken, async (req: AuthRequest, res: Re
   }
 
   try {
-    const currentUser = await prisma.user.findUnique({ where: { id: userId } });
+    const currentUser = await prisma.user.findUnique({
+      where: { id: userId },
+      include: { linked_wallets: true },
+    });
     if (!currentUser) return res.status(404).json({ error: 'User not found' });
 
-    const existingPhoneUser = await prisma.user.findUnique({ where: { phone } });
+    const existingPhoneUser = await prisma.user.findUnique({
+      where: { phone },
+      include: { linked_wallets: true },
+    });
     if (existingPhoneUser && existingPhoneUser.id !== currentUser.id) {
-      return res.status(409).json({ error: 'Phone number is already attached to another account' });
+      const alreadyLinked = existingPhoneUser.linked_wallets.some(
+        (wallet) => wallet.wallet_address === currentUser.wallet_address,
+      );
+
+      if (!alreadyLinked && existingPhoneUser.wallet_address !== currentUser.wallet_address) {
+        const linkedElsewhere = await prisma.linkedWallet.findUnique({
+          where: { wallet_address: currentUser.wallet_address },
+        });
+        if (linkedElsewhere && linkedElsewhere.user_id !== existingPhoneUser.id) {
+          return res.status(409).json({ error: 'Wallet is already attached to another phone account' });
+        }
+
+        await prisma.linkedWallet.create({
+          data: {
+            user_id: existingPhoneUser.id,
+            wallet_address: currentUser.wallet_address,
+            label: 'Attached Solana wallet',
+          },
+        });
+      }
+
+      otpStore.delete(phone);
+      const refreshedUser = await userWithWallets(existingPhoneUser.id);
+      if (!refreshedUser) return res.status(404).json({ error: 'User not found' });
+      const { token, expiresAt } = await issueSession(refreshedUser);
+
+      return res.status(200).json({
+        message: 'Phone already had a wallet, so this Solana wallet was attached under the same phone account',
+        token,
+        expiresAt,
+        user: userResponse(refreshedUser, refreshedUser.linked_wallets),
+      });
     }
 
     const user = await prisma.user.update({
       where: { id: userId },
       data: { phone },
+      include: { linked_wallets: true },
     });
 
     otpStore.delete(phone);
 
     res.status(200).json({
       message: 'Phone number attached successfully',
-      user: userResponse(user),
+      user: userResponse(user, user.linked_wallets),
     });
   } catch (error) {
     console.error('Attach phone error:', error);
@@ -228,7 +310,8 @@ router.post('/verify-otp', async (req: Request, res: Response) => {
 
     // Check if user exists
     let user = await prisma.user.findUnique({
-      where: { phone }
+      where: { phone },
+      include: { linked_wallets: true },
     });
 
     // If new user, create their profile and custodial wallet
@@ -242,7 +325,8 @@ router.post('/verify-otp', async (req: Request, res: Response) => {
           phone,
           wallet_address: publicKey,
           encrypted_private_key: encryptedPrivateKey
-        }
+        },
+        include: { linked_wallets: true },
       });
     }
 
@@ -252,7 +336,7 @@ router.post('/verify-otp', async (req: Request, res: Response) => {
       message: 'Login successful',
       token,
       expiresAt,
-      user: userResponse(user)
+      user: userResponse(user, user.linked_wallets)
     });
 
   } catch (error) {
