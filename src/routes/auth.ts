@@ -2,7 +2,7 @@ import { Router } from 'express';
 import type { Request, Response } from 'express';
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
-import nacl from 'tweetnacl';
+import { ed25519 } from '@noble/curves/ed25519';
 import bs58 from 'bs58';
 import { PublicKey } from '@solana/web3.js';
 import prisma from '../config/db.js';
@@ -100,9 +100,9 @@ router.post('/wallet/verify', async (req: Request, res: Response) => {
       return res.status(401).json({ error: 'Wallet challenge expired' });
     }
 
-    const verified = nacl.sign.detached.verify(
-      new TextEncoder().encode(challenge.message),
+    const verified = ed25519.verify(
       decodeSignature(signature),
+      new TextEncoder().encode(challenge.message),
       new PublicKey(wallet).toBytes(),
     );
 
