@@ -21,6 +21,10 @@ model User {
   sent_transactions     Transaction[]    @relation("Sender")
   received_transactions Transaction[]    @relation("Receiver")
   merchant_requests     PaymentRequest[] @relation("MerchantRequests")
+  sessions              Session[]
+  notifications         Notification[]
+  infra_payments        InfraPayment[]
+  auth_challenges       AuthChallenge[]
 }
 
 model Transaction {
@@ -50,4 +54,58 @@ model PaymentRequest {
   message     String?
   created_at  DateTime @default(now())
   updated_at  DateTime @updatedAt
+}
+
+model Session {
+  id         String   @id @default(auto()) @map("_id") @db.ObjectId
+  token_hash String   @unique
+  user_id    String   @db.ObjectId
+  user       User     @relation(fields: [user_id], references: [id])
+  expires_at DateTime
+  created_at DateTime @default(now())
+}
+
+model AuthChallenge {
+  id             String    @id @default(auto()) @map("_id") @db.ObjectId
+  wallet_address String
+  nonce          String    @unique
+  message        String
+  used_at        DateTime?
+  expires_at     DateTime
+  created_at     DateTime  @default(now())
+
+  user_id        String?   @db.ObjectId
+  user           User?     @relation(fields: [user_id], references: [id])
+}
+
+model Notification {
+  id         String   @id @default(auto()) @map("_id") @db.ObjectId
+  user_id    String   @db.ObjectId
+  user       User     @relation(fields: [user_id], references: [id])
+  type       String
+  title      String
+  body       String
+  data       Json?
+  read       Boolean  @default(false)
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+}
+
+model InfraPayment {
+  id                String    @id @default(auto()) @map("_id") @db.ObjectId
+  user_id           String    @db.ObjectId
+  user              User      @relation(fields: [user_id], references: [id])
+  amount            Float
+  token             String    @default("SOL")
+  recipient_address String
+  reference         String    @unique
+  label             String?
+  message           String?
+  memo              String?
+  status            String    @default("PENDING")
+  checkout_url      String
+  signature         String?
+  confirmed_at      DateTime?
+  created_at        DateTime  @default(now())
+  updated_at        DateTime  @updatedAt
 }

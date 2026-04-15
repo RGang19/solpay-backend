@@ -6,7 +6,8 @@ const JWT_SECRET = process.env.JWT_SECRET || 'super-secret-jwt-key';
 export interface AuthRequest extends Request {
   user?: {
     userId: string;
-    phone: string;
+    phone?: string;
+    walletAddress?: string;
   };
 }
 
@@ -21,7 +22,7 @@ export const authenticateToken = (req: AuthRequest, res: Response, next: NextFun
   }
 
   try {
-    const decoded = jwt.verify(token, JWT_SECRET) as { userId: string, phone: string };
+    const decoded = jwt.verify(token, JWT_SECRET) as { userId: string; phone?: string; walletAddress?: string };
     req.user = decoded;
     next();
   } catch (err) {
