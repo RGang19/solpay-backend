@@ -3,7 +3,7 @@ import type { Request, Response } from 'express';
 import crypto from 'crypto';
 import { ed25519 } from '@noble/curves/ed25519';
 import bs58 from 'bs58';
-import { PublicKey } from '@solana/web3.js';
+import { Connection, PublicKey } from '@solana/web3.js';
 import prisma from '../config/db.js';
 import { createCustodialWallet } from '../services/walletService.js';
 import { authenticateToken } from '../middleware/authMiddleware.js';
@@ -11,10 +11,20 @@ import type { AuthRequest } from '../middleware/authMiddleware.js';
 import { issueSession } from '../services/sessionService.js';
 
 const router = Router();
+const solanaConnection = new Connection(process.env.SOLANA_RPC_URL || 'https://api.devnet.solana.com', 'confirmed');
 // In-memory store for mocked OTPs (phone -> otp)
 const otpStore = new Map<string, string>();
 
-const userResponse = (
+const getWalletBalance = async (address: string) => {
+  try {
+    const lamports = await solanaConnection.getBalance(new PublicKey(address));
+    return lamports / 1e9;
+  } catch {
+    return 0;
+  }
+};
+
+const userResponse = async (
   user: {
   id: string;
   name: string | null;
@@ -28,6 +38,31 @@ const userResponse = (
   const primaryLabel = user.encrypted_private_key
     ? 'Mobile-created custodial wallet'
     : 'Signed Solana wallet';
+  const walletItems = await Promise.all([
+    getWalletBalance(user.wallet_address).then((balance) => ({
+      address: user.wallet_address,
+      type: user.encrypted_private_key ? 'mobile_created' : 'primary',
+      label: primaryLabel,
+      balance,
+      token: 'SOL',
+      canSend: Boolean(user.encrypted_private_key),
+      canReceive: true,
+      isPrimary: true,
+    })),
+    ...linkedWallets.map((wallet) =>
+      getWalletBalance(wallet.wallet_address).then((balance) => ({
+        address: wallet.wallet_address,
+        type: 'attached',
+        label: wallet.label || 'Attached Solana wallet',
+        source: wallet.source,
+        balance,
+        token: 'SOL',
+        canSend: false,
+        canReceive: true,
+        isPrimary: false,
+      })),
+    ),
+  ]);
 
   return {
     id: user.id,
@@ -35,21 +70,7 @@ const userResponse = (
     phone: user.phone,
     wallet_address: user.wallet_address,
     is_merchant: user.is_merchant || false,
-    wallets: [
-      {
-        address: user.wallet_address,
-        type: user.encrypted_private_key ? 'mobile_created' : 'primary',
-        label: primaryLabel,
-        isPrimary: true,
-      },
-      ...linkedWallets.map((wallet) => ({
-        address: wallet.wallet_address,
-        type: 'attached',
-        label: wallet.label || 'Attached Solana wallet',
-        source: wallet.source,
-        isPrimary: false,
-      })),
-    ],
+    wallets: walletItems,
   };
 };
 
@@ -174,7 +195,7 @@ router.post('/wallet/verify', async (req: Request, res: Response) => {
       message: 'Wallet login successful',
       token,
       expiresAt,
-      user: userResponse(user, user.linked_wallets),
+      user: await userResponse(user, user.linked_wallets),
     });
   } catch (error) {
     console.error('Wallet login error:', error);
@@ -189,7 +210,7 @@ router.get('/session/me', authenticateToken, async (req: AuthRequest, res: Respo
   const user = await userWithWallets(userId);
   if (!user) return res.status(404).json({ error: 'User not found' });
 
-  res.status(200).json({ user: userResponse(user, user.linked_wallets) });
+  res.status(200).json({ user: await userResponse(user, user.linked_wallets) });
 });
 
 router.post('/phone/attach', authenticateToken, async (req: AuthRequest, res: Response) => {
@@ -246,7 +267,7 @@ router.post('/phone/attach', authenticateToken, async (req: AuthRequest, res: Re
         message: 'Phone already had a wallet, so this Solana wallet was attached under the same phone account',
         token,
         expiresAt,
-        user: userResponse(refreshedUser, refreshedUser.linked_wallets),
+        user: await userResponse(refreshedUser, refreshedUser.linked_wallets),
       });
     }
 
@@ -260,7 +281,7 @@ router.post('/phone/attach', authenticateToken, async (req: AuthRequest, res: Re
 
     res.status(200).json({
       message: 'Phone number attached successfully',
-      user: userResponse(user, user.linked_wallets),
+      user: await userResponse(user, user.linked_wallets),
     });
   } catch (error) {
     console.error('Attach phone error:', error);
@@ -336,7 +357,7 @@ router.post('/verify-otp', async (req: Request, res: Response) => {
       message: 'Login successful',
       token,
       expiresAt,
-      user: userResponse(user, user.linked_wallets)
+      user: await userResponse(user, user.linked_wallets)
     });
 
   } catch (error) {
