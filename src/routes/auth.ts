@@ -289,6 +289,49 @@ router.post('/phone/attach', authenticateToken, async (req: AuthRequest, res: Re
   }
 });
 
+router.post('/wallet/detach', authenticateToken, async (req: AuthRequest, res: Response) => {
+  const userId = req.user?.userId;
+  const { walletAddress } = req.body;
+
+  if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+  if (!walletAddress) return res.status(400).json({ error: 'walletAddress is required' });
+
+  try {
+    const wallet = new PublicKey(walletAddress).toBase58();
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      include: { linked_wallets: true },
+    });
+
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    if (user.wallet_address === wallet) {
+      return res.status(400).json({
+        error: 'Primary mobile-created wallet cannot be detached from its phone account',
+      });
+    }
+
+    const linkedWallet = await prisma.linkedWallet.findUnique({
+      where: { wallet_address: wallet },
+    });
+
+    if (!linkedWallet || linkedWallet.user_id !== user.id) {
+      return res.status(404).json({ error: 'Attached wallet not found for this account' });
+    }
+
+    await prisma.linkedWallet.delete({ where: { wallet_address: wallet } });
+    const refreshedUser = await userWithWallets(user.id);
+    if (!refreshedUser) return res.status(404).json({ error: 'User not found' });
+
+    res.status(200).json({
+      message: 'Attached wallet detached successfully',
+      user: await userResponse(refreshedUser, refreshedUser.linked_wallets),
+    });
+  } catch (error) {
+    console.error('Detach wallet error:', error);
+    res.status(400).json({ error: 'Could not detach wallet' });
+  }
+});
+
 /**
  * POST /api/auth/send-otp
  * Mocks sending an OTP to the user's phone.
