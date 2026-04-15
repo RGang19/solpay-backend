@@ -1,4 +1,5 @@
 import prisma from '../config/db.js';
+import type { Prisma } from '@prisma/client';
 import { pushToUser } from './realtimeHub.js';
 
 export type NotificationPayload = {
@@ -22,7 +23,7 @@ export const createNotification = async ({
       type,
       title,
       body,
-      data,
+      ...(data ? { data: data as Prisma.InputJsonValue } : {}),
     },
   });
 

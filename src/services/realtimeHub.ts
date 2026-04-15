@@ -1,6 +1,7 @@
 import type { Server } from 'http';
+import type { IncomingMessage } from 'http';
 import jwt from 'jsonwebtoken';
-import { WebSocketServer, type WebSocket } from 'ws';
+import WebSocket from 'ws';
 
 type ClientMessage = {
   type: string;
@@ -11,7 +12,7 @@ const JWT_SECRET = process.env.JWT_SECRET || 'super-secret-jwt-key';
 const clientsByUser = new Map<string, Set<WebSocket>>();
 
 const sendJson = (socket: WebSocket, message: ClientMessage) => {
-  if (socket.readyState === socket.OPEN) {
+  if (socket.readyState === WebSocket.OPEN) {
     socket.send(JSON.stringify(message));
   }
 };
@@ -26,9 +27,9 @@ export const pushToUser = (userId: string, type: string, payload: unknown) => {
 };
 
 export const attachRealtimeServer = (server: Server) => {
-  const wss = new WebSocketServer({ server, path: '/ws' });
+  const wss = new WebSocket.Server({ server, path: '/ws' });
 
-  wss.on('connection', (socket, request) => {
+  wss.on('connection', (socket: WebSocket, request: IncomingMessage) => {
     const url = new URL(request.url || '', `http://${request.headers.host || 'localhost'}`);
     const token = url.searchParams.get('token');
 

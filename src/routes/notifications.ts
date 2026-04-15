@@ -41,18 +41,22 @@ router.post('/', authenticateToken, async (req: AuthRequest, res: Response) => {
 
 router.patch('/:id', authenticateToken, async (req: AuthRequest, res: Response) => {
   const userId = req.user?.userId;
+  const notificationId = req.params.id;
   const { read } = req.body;
 
   if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+  if (!notificationId || Array.isArray(notificationId)) {
+    return res.status(400).json({ error: 'Notification id is required' });
+  }
   if (typeof read !== 'boolean') return res.status(400).json({ error: 'read must be boolean' });
 
   const existing = await prisma.notification.findFirst({
-    where: { id: req.params.id, user_id: userId },
+    where: { id: notificationId, user_id: userId },
   });
   if (!existing) return res.status(404).json({ error: 'Notification not found' });
 
   const notification = await prisma.notification.update({
-    where: { id: req.params.id },
+    where: { id: notificationId },
     data: { read },
   });
 

@@ -67,10 +67,14 @@ router.post('/', authenticateToken, async (req: AuthRequest, res: Response) => {
 
 router.get('/:id', authenticateToken, async (req: AuthRequest, res: Response) => {
   const userId = req.user?.userId;
+  const paymentId = req.params.id;
   if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+  if (!paymentId || Array.isArray(paymentId)) {
+    return res.status(400).json({ error: 'Payment id is required' });
+  }
 
   const payment = await prisma.infraPayment.findFirst({
-    where: { id: req.params.id, user_id: userId },
+    where: { id: paymentId, user_id: userId },
   });
   if (!payment) return res.status(404).json({ error: 'Payment not found' });
 
@@ -79,10 +83,14 @@ router.get('/:id', authenticateToken, async (req: AuthRequest, res: Response) =>
 
 router.post('/:id/verify', authenticateToken, async (req: AuthRequest, res: Response) => {
   const userId = req.user?.userId;
+  const paymentId = req.params.id;
   if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+  if (!paymentId || Array.isArray(paymentId)) {
+    return res.status(400).json({ error: 'Payment id is required' });
+  }
 
   const payment = await prisma.infraPayment.findFirst({
-    where: { id: req.params.id, user_id: userId },
+    where: { id: paymentId, user_id: userId },
   });
   if (!payment) return res.status(404).json({ error: 'Payment not found' });
 
