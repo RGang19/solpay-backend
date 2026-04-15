@@ -1,6 +1,5 @@
 import { Router } from 'express';
 import type { Request, Response } from 'express';
-import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
 import { ed25519 } from '@noble/curves/ed25519';
 import bs58 from 'bs58';
@@ -12,8 +11,6 @@ import type { AuthRequest } from '../middleware/authMiddleware.js';
 import { issueSession } from '../services/sessionService.js';
 
 const router = Router();
-const JWT_SECRET = process.env.JWT_SECRET || 'super-secret-jwt-key';
-
 // In-memory store for mocked OTPs (phone -> otp)
 const otpStore = new Map<string, string>();
 
@@ -151,6 +148,44 @@ router.get('/session/me', authenticateToken, async (req: AuthRequest, res: Respo
   res.status(200).json({ user: userResponse(user) });
 });
 
+router.post('/phone/attach', authenticateToken, async (req: AuthRequest, res: Response) => {
+  const userId = req.user?.userId;
+  const { phone, otp } = req.body;
+
+  if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+  if (!phone || !otp) return res.status(400).json({ error: 'Phone and OTP are required' });
+
+  const storedOtp = otpStore.get(phone);
+  if (storedOtp !== otp) {
+    return res.status(401).json({ error: 'Invalid or expired OTP' });
+  }
+
+  try {
+    const currentUser = await prisma.user.findUnique({ where: { id: userId } });
+    if (!currentUser) return res.status(404).json({ error: 'User not found' });
+
+    const existingPhoneUser = await prisma.user.findUnique({ where: { phone } });
+    if (existingPhoneUser && existingPhoneUser.id !== currentUser.id) {
+      return res.status(409).json({ error: 'Phone number is already attached to another account' });
+    }
+
+    const user = await prisma.user.update({
+      where: { id: userId },
+      data: { phone },
+    });
+
+    otpStore.delete(phone);
+
+    res.status(200).json({
+      message: 'Phone number attached successfully',
+      user: userResponse(user),
+    });
+  } catch (error) {
+    console.error('Attach phone error:', error);
+    res.status(500).json({ error: 'Could not attach phone number' });
+  }
+});
+
 /**
  * POST /api/auth/send-otp
  * Mocks sending an OTP to the user's phone.
@@ -211,16 +246,12 @@ router.post('/verify-otp', async (req: Request, res: Response) => {
       });
     }
 
-    // Generate JWT token
-    const token = jwt.sign(
-      { userId: user.id, phone: user.phone, walletAddress: user.wallet_address },
-      JWT_SECRET,
-      { expiresIn: '7d' },
-    );
+    const { token, expiresAt } = await issueSession(user);
 
     res.status(200).json({
       message: 'Login successful',
       token,
+      expiresAt,
       user: userResponse(user)
     });
 
