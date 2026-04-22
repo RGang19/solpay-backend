@@ -426,8 +426,79 @@ router.post('/wallet/attach', authenticateToken, async (req: AuthRequest, res: R
 });
 
 /**
+ * POST /api/auth/wallet/set-primary
+ * Allows user to set any of their attached wallets as the primary wallet.
+ * The old primary becomes a linked wallet, and the new one becomes primary.
+ */
+router.post('/wallet/set-primary', authenticateToken, async (req: AuthRequest, res: Response) => {
+  const userId = req.user?.userId;
+  const { walletAddress } = req.body;
+
+  if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+  if (!walletAddress) return res.status(400).json({ error: 'walletAddress is required' });
+
+  try {
+    const wallet = new PublicKey(walletAddress).toBase58();
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      include: { linked_wallets: true },
+    });
+
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    // Already the primary wallet
+    if (user.wallet_address === wallet) {
+      return res.status(200).json({
+        message: 'This wallet is already the primary wallet',
+        user: await userResponse(user, user.linked_wallets),
+      });
+    }
+
+    // Check the wallet is a linked wallet owned by this user
+    const linkedWallet = user.linked_wallets.find((w) => w.wallet_address === wallet);
+    if (!linkedWallet) {
+      return res.status(404).json({ error: 'Wallet not found in your account. Attach it first.' });
+    }
+
+    // Swap: move current primary to linked, move linked to primary
+    // 1. Delete the linked wallet entry for the new primary
+    await prisma.linkedWallet.delete({ where: { wallet_address: wallet } });
+
+    // 2. Create a linked wallet entry for the old primary
+    await prisma.linkedWallet.create({
+      data: {
+        user_id: user.id,
+        wallet_address: user.wallet_address,
+        label: user.encrypted_private_key ? 'Mobile-created custodial wallet' : 'Previous primary wallet',
+        source: 'PRIMARY_SWAP',
+      },
+    });
+
+    // 3. Update user's primary wallet address (clear encrypted key since attached wallets are non-custodial)
+    await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        wallet_address: wallet,
+        encrypted_private_key: '',
+      },
+    });
+
+    const refreshedUser = await userWithWallets(user.id);
+    if (!refreshedUser) return res.status(404).json({ error: 'User not found' });
+
+    res.status(200).json({
+      message: 'Primary wallet updated successfully',
+      user: await userResponse(refreshedUser, refreshedUser.linked_wallets),
+    });
+  } catch (error) {
+    console.error('Set primary wallet error:', error);
+    res.status(500).json({ error: 'Could not update primary wallet' });
+  }
+});
+
+/**
  * POST /api/auth/send-otp
- * Mocks sending an OTP to the user's phone.
+ * Sends a random 6-digit OTP to the user's phone.
  */
 router.post('/send-otp', async (req: Request, res: Response) => {
   const { phone } = req.body;

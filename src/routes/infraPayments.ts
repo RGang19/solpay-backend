@@ -10,10 +10,10 @@ import { buildSolanaPayUrl, verifySolPayment } from '../services/solanaPayServic
 
 const router = Router();
 
-const getConfiguredRecipient = (fallbackWallet?: string) => {
-  const recipient = process.env.MERCHANT_WALLET_ADDRESS || fallbackWallet;
-  if (!recipient) throw new Error('MERCHANT_WALLET_ADDRESS is not configured');
-  return new PublicKey(recipient).toBase58();
+const getRecipientAddress = (recipientAddress?: string, userWallet?: string) => {
+  const address = recipientAddress || userWallet || process.env.MERCHANT_WALLET_ADDRESS;
+  if (!address) throw new Error('No recipient wallet address available');
+  return new PublicKey(address).toBase58();
 };
 
 router.post('/', authenticateToken, async (req: AuthRequest, res: Response) => {
@@ -33,7 +33,7 @@ router.post('/', authenticateToken, async (req: AuthRequest, res: Response) => {
     const user = await prisma.user.findUnique({ where: { id: userId } });
     if (!user) return res.status(404).json({ error: 'User not found' });
 
-    const recipient = getConfiguredRecipient(recipientAddress || user.wallet_address);
+    const recipient = getRecipientAddress(recipientAddress, user.wallet_address);
     const reference = Keypair.generate().publicKey.toBase58();
     const checkoutUrl = buildSolanaPayUrl({
       recipient,
