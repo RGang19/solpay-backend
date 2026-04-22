@@ -26,19 +26,21 @@ const getWalletBalance = async (address: string) => {
 
 const userResponse = async (
   user: {
-  id: string;
-  name: string | null;
-  phone: string;
-  wallet_address: string;
-  encrypted_private_key?: string;
-  is_merchant?: boolean;
+    id: string;
+    name: string | null;
+    phone: string;
+    wallet_address: string;
+    encrypted_private_key?: string;
+    is_merchant?: boolean;
   },
   linkedWallets: Array<{ wallet_address: string; label: string | null; source: string }> = [],
 ) => {
   const primaryLabel = user.encrypted_private_key
     ? 'Mobile-created custodial wallet'
     : 'Signed Solana wallet';
+
   const walletItems = await Promise.all([
+    // 1. Primary wallet
     getWalletBalance(user.wallet_address).then((balance) => ({
       address: user.wallet_address,
       type: user.encrypted_private_key ? 'mobile_created' : 'primary',
@@ -49,19 +51,22 @@ const userResponse = async (
       canReceive: true,
       isPrimary: true,
     })),
-    ...linkedWallets.map((wallet) =>
-      getWalletBalance(wallet.wallet_address).then((balance) => ({
-        address: wallet.wallet_address,
-        type: 'attached',
-        label: wallet.label || 'Attached Solana wallet',
-        source: wallet.source,
-        balance,
-        token: 'SOL',
-        canSend: false,
-        canReceive: true,
-        isPrimary: false,
-      })),
-    ),
+    // 2. Attached wallets (filtered to ignore collisions with primary wallet)
+    ...linkedWallets
+      .filter((wallet) => wallet.wallet_address !== user.wallet_address)
+      .map((wallet) =>
+        getWalletBalance(wallet.wallet_address).then((balance) => ({
+          address: wallet.wallet_address,
+          type: 'attached',
+          label: wallet.label || 'Attached Solana wallet',
+          source: wallet.source,
+          balance,
+          token: 'SOL',
+          canSend: false,
+          canReceive: true,
+          isPrimary: false,
+        })),
+      ),
   ]);
 
   return {
