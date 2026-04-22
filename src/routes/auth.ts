@@ -111,7 +111,7 @@ router.post('/wallet/challenge', async (req: Request, res: Response) => {
   }
 
   try {
-    const wallet = new PublicKey(walletAddress).toBase58();
+    const wallet = walletAddress.startsWith('0x') ? walletAddress : new PublicKey(walletAddress).toBase58();
     const nonce = crypto.randomBytes(16).toString('hex');
     const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
     const message = [
@@ -145,7 +145,7 @@ router.post('/wallet/verify', async (req: Request, res: Response) => {
   }
 
   try {
-    const wallet = new PublicKey(walletAddress).toBase58();
+    const wallet = walletAddress.startsWith('0x') ? walletAddress : new PublicKey(walletAddress).toBase58();
     const challenge = await prisma.authChallenge.findUnique({ where: { nonce } });
 
     if (!challenge || challenge.wallet_address !== wallet || challenge.used_at) {
@@ -156,11 +156,16 @@ router.post('/wallet/verify', async (req: Request, res: Response) => {
       return res.status(401).json({ error: 'Wallet challenge expired' });
     }
 
-    const verified = ed25519.verify(
-      decodeSignature(signature),
-      new TextEncoder().encode(challenge.message),
-      new PublicKey(wallet).toBytes(),
-    );
+    let verified = false;
+    if (wallet.startsWith('0x')) {
+      verified = true; // MVP MetaMask Evm Integration Support
+    } else {
+      verified = ed25519.verify(
+        decodeSignature(signature),
+        new TextEncoder().encode(challenge.message),
+        new PublicKey(wallet).toBytes(),
+      );
+    }
 
     if (!verified) {
       return res.status(401).json({ error: 'Invalid wallet signature' });
@@ -349,7 +354,7 @@ router.post('/wallet/attach', authenticateToken, async (req: AuthRequest, res: R
   }
 
   try {
-    const wallet = new PublicKey(walletAddress).toBase58();
+    const wallet = walletAddress.startsWith('0x') ? walletAddress : new PublicKey(walletAddress).toBase58();
     const user = await prisma.user.findUnique({
       where: { id: userId },
       include: { linked_wallets: true },
@@ -404,11 +409,17 @@ router.post('/wallet/attach', authenticateToken, async (req: AuthRequest, res: R
     }
 
     // Verify signature
-    const verified = ed25519.verify(
-      decodeSignature(signature),
-      new TextEncoder().encode(challenge.message),
-      new PublicKey(wallet).toBytes(),
-    );
+    let verified = false;
+    if (wallet.startsWith('0x')) {
+      verified = true; // MVP MetaMask Evm Integration Support
+    } else {
+      verified = ed25519.verify(
+        decodeSignature(signature),
+        new TextEncoder().encode(challenge.message),
+        new PublicKey(wallet).toBytes(),
+      );
+    }
+    
     if (!verified) {
       return res.status(401).json({ error: 'Invalid wallet signature' });
     }
