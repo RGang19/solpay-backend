@@ -376,8 +376,15 @@ router.post('/wallet/attach', authenticateToken, async (req: AuthRequest, res: R
     const otherUser = await prisma.user.findUnique({ where: { wallet_address: wallet } });
     if (otherUser && otherUser.id !== user.id) {
       if (otherUser.phone === `wallet:${wallet}`) {
-        // It's a stale shell user from a previous wallet login. Safe to delete.
-        await prisma.user.delete({ where: { id: otherUser.id } });
+        // It's a stale shell user from a previous wallet login.
+        // Instead of deleting (which breaks foreign keys like sessions/transactions), we rename to clear the unique constraint.
+        await prisma.user.update({
+          where: { id: otherUser.id },
+          data: {
+            wallet_address: `merged_${Date.now()}:${otherUser.wallet_address}`,
+            phone: `merged_${Date.now()}:${otherUser.phone}`,
+          },
+        });
       } else {
         return res.status(409).json({ error: 'This wallet is the primary wallet of another account' });
       }
@@ -488,7 +495,13 @@ router.post('/wallet/set-primary', authenticateToken, async (req: AuthRequest, r
     const conflictingUser = await prisma.user.findUnique({ where: { wallet_address: wallet } });
     if (conflictingUser && conflictingUser.id !== user.id) {
       if (conflictingUser.phone === `wallet:${wallet}`) {
-        await prisma.user.delete({ where: { id: conflictingUser.id } });
+        await prisma.user.update({
+          where: { id: conflictingUser.id },
+          data: {
+            wallet_address: `merged_${Date.now()}:${conflictingUser.wallet_address}`,
+            phone: `merged_${Date.now()}:${conflictingUser.phone}`,
+          },
+        });
       } else {
         return res.status(409).json({ error: 'This wallet is the primary wallet of another full account.' });
       }
