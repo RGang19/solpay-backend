@@ -6,7 +6,7 @@ import { authenticateToken } from '../middleware/authMiddleware.js';
 import type { AuthRequest } from '../middleware/authMiddleware.js';
 
 const router = Router();
-const solanaConnection = new Connection('https://api.devnet.solana.com', 'confirmed');
+const solanaConnection = new Connection(process.env.SOLANA_RPC_URL || 'https://api.devnet.solana.com', 'confirmed');
 
 /**
  * GET /api/transactions

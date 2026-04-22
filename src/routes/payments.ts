@@ -8,7 +8,7 @@ import type { AuthRequest } from '../middleware/authMiddleware.js';
 import { getDecryptedKeypair } from '../services/walletService.js';
 
 const router = Router();
-const solanaConnection = new Connection('https://api.devnet.solana.com', 'confirmed');
+const solanaConnection = new Connection(process.env.SOLANA_RPC_URL || 'https://api.devnet.solana.com', 'confirmed');
 
 /**
  * POST /api/payments/send

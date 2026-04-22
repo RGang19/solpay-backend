@@ -435,14 +435,14 @@ router.post('/send-otp', async (req: Request, res: Response) => {
     return res.status(400).json({ error: 'Phone number is required' });
   }
 
-  // Generate a mock 6-digit OTP
-  const mockOtp = '123456'; // Fixed for MVP testing. In production: Math.floor(100000 + Math.random() * 900000).toString();
-  otpStore.set(phone, mockOtp);
+  // Generate a random 6-digit OTP
+  const generatedOtp = Math.floor(100000 + Math.random() * 900000).toString();
+  otpStore.set(phone, generatedOtp);
 
   // Log to console for development
-  console.log(`[MOCK SMS] Sent OTP ${mockOtp} to ${phone}`);
+  console.log(`[OTP] Sent OTP ${generatedOtp} to ${phone}`);
 
-  res.status(200).json({ message: 'OTP sent successfully (check console)' });
+  res.status(200).json({ message: 'OTP sent successfully', otp: generatedOtp });
 });
 
 /**

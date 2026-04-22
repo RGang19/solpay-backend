@@ -4,6 +4,7 @@ import http from 'http';
 import cors from 'cors';
 import helmet from 'helmet';
 import morgan from 'morgan';
+import rateLimit from 'express-rate-limit';
 import dotenv from 'dotenv';
 import authRoutes from './routes/auth.js';
 import paymentRoutes from './routes/payments.js';
@@ -16,11 +17,20 @@ import { attachRealtimeServer } from './services/realtimeHub.js';
 
 dotenv.config();
 
+// ── Environment validation ──────────────────────────────────────────────────
+const REQUIRED_ENV = ['DATABASE_URL', 'JWT_SECRET', 'ENCRYPTION_KEY'];
+const missing = REQUIRED_ENV.filter((key) => !process.env[key]);
+if (missing.length > 0) {
+  console.error(`❌ Missing required environment variables: ${missing.join(', ')}`);
+  console.error('   Check your .env file or environment configuration.');
+  process.exit(1);
+}
+
 const app = express();
 const PORT = process.env.PORT || 3001;
 const server = http.createServer(app);
 
-// Middleware
+// ── Middleware ───────────────────────────────────────────────────────────────
 app.use(cors({
   origin: ['https://sol-pay.netlify.app', 'http://localhost:5173', 'http://localhost:8080', 'http://localhost:3000'],
   credentials: true
@@ -32,14 +42,42 @@ app.use(helmet({
 app.use(morgan('dev'));
 app.use(express.json());
 
-// Routes
-app.use('/api/auth', authRoutes);
-app.use('/api/payments', paymentRoutes);
-app.use('/api/transactions', transactionRoutes);
-app.use('/api/user', userRoutes);
-app.use('/api/requests', paymentRequestsRoutes);
-app.use('/api/notifications', notificationRoutes);
-app.use('/api/infra/payments', infraPaymentRoutes);
+// ── Rate Limiting ───────────────────────────────────────────────────────────
+// General API rate limit: 100 requests per 15 minutes per IP
+const generalLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 100,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many requests, please try again later.' },
+});
+
+// Strict rate limit for auth endpoints: 10 requests per 15 minutes per IP
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many authentication attempts, please try again later.' },
+});
+
+// Payment rate limit: 20 requests per 15 minutes per IP
+const paymentLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many payment requests, please try again later.' },
+});
+
+// ── Routes ──────────────────────────────────────────────────────────────────
+app.use('/api/auth', authLimiter, authRoutes);
+app.use('/api/payments', paymentLimiter, paymentRoutes);
+app.use('/api/transactions', generalLimiter, transactionRoutes);
+app.use('/api/user', generalLimiter, userRoutes);
+app.use('/api/requests', generalLimiter, paymentRequestsRoutes);
+app.use('/api/notifications', generalLimiter, notificationRoutes);
+app.use('/api/infra/payments', paymentLimiter, infraPaymentRoutes);
 
 app.get('/health', (req: Request, res: Response) => {
   res.status(200).json({ status: 'ok' });
