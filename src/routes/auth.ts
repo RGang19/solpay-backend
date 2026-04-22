@@ -332,6 +332,99 @@ router.post('/wallet/detach', authenticateToken, async (req: AuthRequest, res: R
   }
 });
 
+const MAX_WALLETS = 10;
+
+router.post('/wallet/attach', authenticateToken, async (req: AuthRequest, res: Response) => {
+  const userId = req.user?.userId;
+  const { walletAddress, signature, nonce, label } = req.body;
+
+  if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+  if (!walletAddress || !signature || !nonce) {
+    return res.status(400).json({ error: 'walletAddress, signature, and nonce are required' });
+  }
+
+  try {
+    const wallet = new PublicKey(walletAddress).toBase58();
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      include: { linked_wallets: true },
+    });
+
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    // Enforce max wallets (primary + attached)
+    const totalWallets = 1 + user.linked_wallets.length;
+    if (totalWallets >= MAX_WALLETS) {
+      return res.status(400).json({ error: `Maximum ${MAX_WALLETS} wallets allowed per account` });
+    }
+
+    // Check duplicate: not the primary wallet and not already attached
+    if (user.wallet_address === wallet) {
+      return res.status(409).json({ error: 'This is already your primary wallet' });
+    }
+    const alreadyLinked = user.linked_wallets.some((w) => w.wallet_address === wallet);
+    if (alreadyLinked) {
+      return res.status(409).json({ error: 'This wallet is already attached to your account' });
+    }
+
+    // Check if this wallet belongs to another user (primary or linked)
+    const otherUser = await prisma.user.findUnique({ where: { wallet_address: wallet } });
+    if (otherUser && otherUser.id !== user.id) {
+      return res.status(409).json({ error: 'This wallet is the primary wallet of another account' });
+    }
+    const otherLinked = await prisma.linkedWallet.findUnique({ where: { wallet_address: wallet } });
+    if (otherLinked && otherLinked.user_id !== user.id) {
+      return res.status(409).json({ error: 'This wallet is already attached to another account' });
+    }
+
+    // Verify challenge
+    const challenge = await prisma.authChallenge.findUnique({ where: { nonce } });
+    if (!challenge || challenge.wallet_address !== wallet || challenge.used_at) {
+      return res.status(401).json({ error: 'Invalid or already used wallet challenge' });
+    }
+    if (challenge.expires_at.getTime() < Date.now()) {
+      return res.status(401).json({ error: 'Wallet challenge expired' });
+    }
+
+    // Verify signature
+    const verified = ed25519.verify(
+      decodeSignature(signature),
+      new TextEncoder().encode(challenge.message),
+      new PublicKey(wallet).toBytes(),
+    );
+    if (!verified) {
+      return res.status(401).json({ error: 'Invalid wallet signature' });
+    }
+
+    // Mark challenge as used
+    await prisma.authChallenge.update({
+      where: { nonce },
+      data: { used_at: new Date(), user_id: user.id },
+    });
+
+    // Create linked wallet
+    await prisma.linkedWallet.create({
+      data: {
+        user_id: user.id,
+        wallet_address: wallet,
+        label: label || 'Attached Solana wallet',
+        source: 'WALLET_SIGNATURE',
+      },
+    });
+
+    const refreshedUser = await userWithWallets(user.id);
+    if (!refreshedUser) return res.status(404).json({ error: 'User not found' });
+
+    res.status(200).json({
+      message: 'Wallet attached successfully via signature verification',
+      user: await userResponse(refreshedUser, refreshedUser.linked_wallets),
+    });
+  } catch (error) {
+    console.error('Attach wallet error:', error);
+    res.status(500).json({ error: 'Could not attach wallet' });
+  }
+});
+
 /**
  * POST /api/auth/send-otp
  * Mocks sending an OTP to the user's phone.
