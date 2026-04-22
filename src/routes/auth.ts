@@ -370,7 +370,12 @@ router.post('/wallet/attach', authenticateToken, async (req: AuthRequest, res: R
     // Check if this wallet belongs to another user (primary or linked)
     const otherUser = await prisma.user.findUnique({ where: { wallet_address: wallet } });
     if (otherUser && otherUser.id !== user.id) {
-      return res.status(409).json({ error: 'This wallet is the primary wallet of another account' });
+      if (otherUser.phone === `wallet:${wallet}`) {
+        // It's a stale shell user from a previous wallet login. Safe to delete.
+        await prisma.user.delete({ where: { id: otherUser.id } });
+      } else {
+        return res.status(409).json({ error: 'This wallet is the primary wallet of another account' });
+      }
     }
     const otherLinked = await prisma.linkedWallet.findUnique({ where: { wallet_address: wallet } });
     if (otherLinked && otherLinked.user_id !== user.id) {
@@ -473,6 +478,16 @@ router.post('/wallet/set-primary', authenticateToken, async (req: AuthRequest, r
         source: 'PRIMARY_SWAP',
       },
     });
+
+    // Handle collision if a sterile shell user exists with the target wallet_address
+    const conflictingUser = await prisma.user.findUnique({ where: { wallet_address: wallet } });
+    if (conflictingUser && conflictingUser.id !== user.id) {
+      if (conflictingUser.phone === `wallet:${wallet}`) {
+        await prisma.user.delete({ where: { id: conflictingUser.id } });
+      } else {
+        return res.status(409).json({ error: 'This wallet is the primary wallet of another full account.' });
+      }
+    }
 
     // 3. Update user's primary wallet address (clear encrypted key since attached wallets are non-custodial)
     await prisma.user.update({
